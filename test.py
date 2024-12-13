@@ -1,19 +1,9 @@
 ﻿import numpy as np
 
-a = np.random.random([2, 3])
-b = np.random.random([2, 3])
-c = np.concatenate((a, b))
+arr = np.random.choice(np.arange(100, dtype=np.int32), size=(3, 15), replace=False)
 
-print(a)
-print('\n')
-
-print(b)
-print('\n')
-
-print(c)
-print('\n')
-print(c.shape)
-
-d = [0, 1, 2, 3, 4, 4]
-
-
+arr = np.array([1, 2, 3, 4, 5, 6])
+arr = arr.reshape(3, 2)
+print(arr)
+arr = arr.reshape(-1, )
+print(arr)
