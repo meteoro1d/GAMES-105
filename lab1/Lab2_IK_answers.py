@@ -2,8 +2,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from lab1.task2_inverse_kinematics import MetaData
 
-MAX_ITERATIONS = 1000
-LEARNING_RATE = 0.1
+MAX_ITERATIONS = 200
 
 def part1_inverse_kinematics(meta_data: MetaData, joint_positions, joint_orientations, target_pose):
     """
@@ -19,12 +18,15 @@ def part1_inverse_kinematics(meta_data: MetaData, joint_positions, joint_orienta
         joint_orientations: 计算得到的关节朝向，是一个numpy数组，shape为(M, 4)，M为关节数
     """
     path, _, _, _ = meta_data.get_path_from_root_to_end()
-    path_joints_positions, path_joints_orientations = get_path_joints_initial_positions_and_orientations(path, joint_positions, joint_orientations)
-    theta = get_initial_theta(path_joints_orientations, R.identity())
 
+    path_joints_positions, path_joints_orientations = get_path_joints_initial_positions_and_orientations(path, joint_positions, joint_orientations)
+    root_parent_orientation = R.identity()
+    theta = get_initial_theta(path_joints_orientations, root_parent_orientation)
+
+    lr = 0.3
     for it in range(1, MAX_ITERATIONS + 1):
-        theta = update_theta(theta, path, path_joints_positions, path_joints_orientations, target_pose)
-        update_path_joint_positions_and_orientations(meta_data, theta, path, path_joints_positions, path_joints_orientations, R.identity())
+        theta = update_theta(lr, theta, path, path_joints_positions, path_joints_orientations, root_parent_orientation, target_pose)
+        update_path_joint_positions_and_orientations(meta_data, theta, path, path_joints_positions, path_joints_orientations, root_parent_orientation)
 
         distance = np.linalg.norm(path_joints_positions[-1] - target_pose)
         print(f'iteration {it}: target_position = {target_pose}, end_position = {path_joints_positions[-1]}, distance = {distance}')
@@ -73,7 +75,7 @@ def get_initial_theta(path_joints_orientations, root_parent_orientation):
 
 
 # 更新参数
-def update_theta(theta, path, path_joints_positions, path_joints_orientations, target_pose, update_root=False):
+def update_theta(lr, theta, path, path_joints_positions, path_joints_orientations, root_parent_orientation, target_pose, update_root=False):
     end_joint_position = path_joints_positions[-1]
     jacobian_T = np.zeros((len(path) * 3, 3))
 
@@ -83,13 +85,24 @@ def update_theta(theta, path, path_joints_positions, path_joints_orientations, t
         start = 1
 
     for i in range(start, len(path)):
-        a = end_joint_position - path_joints_positions[i]
-        rotation_matrix = path_joints_orientations[i].as_matrix()
+        r = path_joints_positions[i] - end_joint_position
+        if i == 0:
+            parent_orientation = root_parent_orientation
+        else:
+            parent_orientation = path_joints_orientations[i - 1]
 
-        for axis in range(3):
-            jacobian_T[i * 3 + axis] = np.cross(a, rotation_matrix[:, axis])
+        r_x = R.from_euler('XYZ', [theta[i][0], 0, 0])
+        r_y = R.from_euler('XYZ', [0, theta[i][1], 0])
 
-    return theta - LEARNING_RATE * np.matmul(jacobian_T, target_pose - end_joint_position).reshape(theta.shape)
+        a_x = parent_orientation.as_matrix()[:, 0]
+        a_y = (parent_orientation * r_x).as_matrix()[:, 1]
+        a_z = (parent_orientation * r_x * r_y).as_matrix()[:, 2]
+
+        jacobian_T[i * 3] = np.cross(a_x, r)
+        jacobian_T[i * 3 + 1] = np.cross(a_y, r)
+        jacobian_T[i * 3 + 2] = np.cross(a_z, r)
+
+    return theta - lr * np.matmul(jacobian_T, target_pose - end_joint_position).reshape(theta.shape)
 
 
 # 根据参数更新位置
@@ -114,29 +127,36 @@ def part2_inverse_kinematics(meta_data: MetaData, joint_positions, joint_orienta
 
     # path上root joint的parent joint的朝向
     root_parent = meta_data.joint_parent[path[0]]
-    root_parent_rotation = R.from_quat(joint_orientations[root_parent])
+    root_parent_orientation = R.from_quat(joint_orientations[root_parent])
 
     path_joints_positions, path_joints_orientations = get_path_joints_initial_positions_and_orientations(path, joint_positions, joint_orientations)
-    theta = get_initial_theta(path_joints_orientations, root_parent_rotation)
+    theta = get_initial_theta(path_joints_orientations, root_parent_orientation)
 
     # 目标位置
     target_pose = np.array([joint_positions[0][0] + relative_x, target_height, joint_positions[0][2] + relative_z])
 
+    lr = 5
     for it in range(1, MAX_ITERATIONS + 1):
-        theta = update_theta(theta, path, path_joints_positions, path_joints_orientations, target_pose, True)
-        update_path_joint_positions_and_orientations(meta_data, theta, path, path_joints_positions, path_joints_orientations, root_parent_rotation)
+        theta = update_theta(lr, theta, path, path_joints_positions, path_joints_orientations, root_parent_orientation, target_pose, True)
+        update_path_joint_positions_and_orientations(meta_data, theta, path, path_joints_positions, path_joints_orientations, root_parent_orientation)
 
         distance = np.linalg.norm(path_joints_positions[-1] - target_pose)
-        print(f'iteration {it}: target_position = {target_pose}, end_position = {path_joints_positions[-1]}, distance = {distance}')
+        # print(f'iteration {it}: target_position = {target_pose}, end_position = {path_joints_positions[-1]}, distance = {distance}')
 
         # 到达目标或最大次数，跳出
         if distance <= 0.01:
+            # print('dddddddddddddd')
             break
 
     # apply ik result
     for i in range(len(path)):
         joint_positions[path[i]] = path_joints_positions[i]
         joint_orientations[path[i]] = path_joints_orientations[i].as_quat()
+
+    lWrist_end_index = meta_data.joint_name.index('lWrist_end')
+    lWrist_end_parent = path[-1]
+    joint_positions[lWrist_end_index] = joint_positions[path[-1]] + R.from_quat(joint_orientations[lWrist_end_parent]).apply(get_joint_offset(lWrist_end_index, lWrist_end_parent, meta_data))
+
     return joint_positions, joint_orientations
 
 

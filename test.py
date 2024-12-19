@@ -1,9 +1,14 @@
 ﻿import numpy as np
+from scipy.spatial.transform import Rotation as R
 
-arr = np.random.choice(np.arange(100, dtype=np.int32), size=(3, 15), replace=False)
+r1 = R.from_euler('XYZ', [90, 90, 0], degrees=True)
 
-arr = np.array([1, 2, 3, 4, 5, 6])
-arr = arr.reshape(3, 2)
-print(arr)
-arr = arr.reshape(-1, )
-print(arr)
+r2x = R.from_euler('XYZ', [90, 0, 0], degrees=True)
+r2y = R.from_euler('XYZ', [0, 90, 0], degrees=True)
+
+r2 = r2y * r2x
+
+r3 = r2x * r2y
+print(r1.as_matrix())
+print(r2.as_matrix())
+print(r3.as_matrix())
